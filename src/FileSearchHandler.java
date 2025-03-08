@@ -10,51 +10,49 @@ import java.util.Date;
 
 public class FileSearchHandler {
 
-    public static void handleSearch(Connection conn, DataInputStream in, DataOutputStream out) throws Exception {
-        // Lire le nom du fichier à rechercher
-        String searchFilename = in.readUTF();
+    public static void handleSearch(Connection conn, DataInputStream in, DataOutputStream out) {
+        try {
+            String searchFilename = in.readUTF();
+            System.out.println("Recherche du fichier : " + searchFilename);
 
-        // Requête pour trouver les utilisateurs associés au nom de fichier
-        String query = "SELECT c.username, c.adresseIP, c.port, c.derniereConnexion " +
-                       "FROM clients c " +
-                       "JOIN fichiers f ON c.username = f.username " +
-                       "WHERE f.nomFichier LIKE ?";
+            String query = "SELECT c.username, c.adresseIP, c.port, c.derniereConnexion " +
+                           "FROM clients c " +
+                           "JOIN fichiers f ON c.username = f.username " +
+                           "WHERE f.nomFichier LIKE ?";
 
-        try (PreparedStatement stmt = conn.prepareStatement(query)) {
-            stmt.setString(1, "%" + searchFilename + "%"); // Recherche partielle sur le nom de fichier
-            try (ResultSet rs = stmt.executeQuery()) {
-                boolean found = false;
-                while (rs.next()) {
-                    String username = rs.getString("username");
-                    String adresseIP = rs.getString("adresseIP");
-                    int port = rs.getInt("port");
-                    String lastConnection = rs.getString("derniereConnexion");
-
-                    // Convertir la dernière connexion en objet Date
+            try (PreparedStatement stmt = conn.prepareStatement(query)) {
+                stmt.setString(1, "%" + searchFilename + "%");
+                try (ResultSet rs = stmt.executeQuery()) {
+                    boolean found = false;
                     SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                    Date lastConnectionDate = formatter.parse(lastConnection);
-
-                    // Heure actuelle
                     Date currentTime = new Date();
 
-                    // Calculer la différence en millisecondes
-                    long diffInMillis = currentTime.getTime() - lastConnectionDate.getTime();
+                    while (rs.next()) {
+                        String username = rs.getString("username");
+                        String adresseIP = rs.getString("adresseIP");
+                        int port = rs.getInt("port");
+                        String lastConnection = rs.getString("derniereConnexion");
 
-                    // Convertir la différence en minutes
-                    long diffInMinutes = diffInMillis / (1000 * 60);
+                        Date lastConnectionDate = formatter.parse(lastConnection);
+                        long diffInMinutes = (currentTime.getTime() - lastConnectionDate.getTime()) / (1000 * 60);
 
-                    // Vérification si la différence est de moins de 5 minutes
-                    if (diffInMinutes < 5) {
-                        String result = "Noeud : " + username + ", Adresse IP : " + adresseIP + ", Port : " + port;
-                        out.writeUTF(result);
-                        found = true;
+                        if (diffInMinutes < 5) {
+                            String result = "Noeud : " + username + ", IP : " + adresseIP + ", Port : " + port;
+                            out.writeUTF(result);
+                            found = true;
+                        }
+                    }
+
+                    if (!found) {
+                        out.writeUTF("Aucun utilisateur actif trouvé pour ce fichier.");
                     }
                 }
-
-                if (!found) {
-                    out.writeUTF("Aucun utilisateur trouvé avec ce fichier et une connexion récente (< 5 minutes).");
-                }
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+            try {
+                out.writeUTF("Erreur lors de la recherche du fichier.");
+            } catch (Exception ignored) {}
         }
     }
 }

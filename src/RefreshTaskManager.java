@@ -5,7 +5,6 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.concurrent.ConcurrentHashMap;
 
-
 public class RefreshTaskManager {
     private static final ConcurrentHashMap<String, Thread> activeThreads = new ConcurrentHashMap<>();
 
@@ -20,7 +19,10 @@ public class RefreshTaskManager {
                 while (!Thread.currentThread().isInterrupted()) { // Vérifie si le thread est interrompu
                     // Requête SQL pour mettre à jour la dernière connexion
                     String query = "UPDATE clients SET derniereConnexion = NOW() WHERE username = ?";
-                    try (PreparedStatement stmt = conn.prepareStatement(query)) {
+
+                    // Récupérer une nouvelle connexion à chaque exécution de la requête
+                    try (Connection newConn = DatabaseManager.getConnection(); // Nouvelle connexion
+                         PreparedStatement stmt = newConn.prepareStatement(query)) {
                         stmt.setString(1, username);
                         stmt.executeUpdate();
                         System.out.println("Dernière connexion mise à jour pour : " + username);

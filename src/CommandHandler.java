@@ -1,3 +1,4 @@
+// CommandHandler.java
 package src;
 
 import java.io.DataInputStream;
@@ -7,28 +8,25 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-
 public class CommandHandler {
 
-    // Gestion des commandes
-    public static void handle(String command, Connection conn, DataInputStream in, DataOutputStream out) throws Exception {
+    public static void handle(String command, Connection conn, DataInputStream in, DataOutputStream out, String clientIpAddress) throws Exception {
         switch (command) {
-            case "SIGNUP" -> handleSignup(conn, in, out);
-            case "LOGIN" -> handleLogin(conn, in, out);
+            case "SIGNUP" -> handleSignup(conn, in, out, clientIpAddress);
+            case "LOGIN" -> handleLogin(conn, in, out, clientIpAddress);
             case "SEARCH" -> FileSearchHandler.handleSearch(conn, in, out);
-            case "UPLOAD" ->FileUploadHandler.handleFileUpload(conn, in, out);
-            case "LOGOUT" -> handleLogout(in, out);
+            case "UPLOAD" -> FileUploadHandler.handleFileUpload(conn, in, out);
+            case "LOGOUT" -> handleLogout(in, out, conn);
             default -> out.writeUTF("Commande inconnue.");
         }
     }
 
-    // Fonction d'inscription
-    private static void handleSignup(Connection conn, DataInputStream in, DataOutputStream out) throws Exception {
+    public static void handleSignup(Connection conn, DataInputStream in, DataOutputStream out, String clientIpAddress) throws Exception {
         String username = in.readUTF();
         String password = in.readUTF();
-        String adresseIP = in.readUTF();
-        int port = in.readInt();
+        final int port = 5000;
 
+        // Vérifier si le nom d'utilisateur est déjà utilisé
         String checkQuery = "SELECT COUNT(*) FROM clients WHERE username = ?";
         try (PreparedStatement checkStmt = conn.prepareStatement(checkQuery)) {
             checkStmt.setString(1, username);
@@ -41,73 +39,81 @@ public class CommandHandler {
             }
         }
 
-        String insertQuery = "INSERT INTO clients (username, password, adresseIP, port, derniereConnexion) VALUES (?, ?, ?, ?, NOW())";
+        // Insérer les informations du client (nom d'utilisateur, mot de passe, IP, port)
+        String insertQuery = "INSERT INTO clients (username, password, adresseIP, port, derniereConnexion ,connecte) VALUES (?, ?, ?, ?, NOW(), TRUE)";
         try (PreparedStatement insertStmt = conn.prepareStatement(insertQuery)) {
             insertStmt.setString(1, username);
             insertStmt.setString(2, password);
-            insertStmt.setString(3, adresseIP);
+            insertStmt.setString(3, clientIpAddress);
             insertStmt.setInt(4, port);
             insertStmt.executeUpdate();
-            out.writeUTF("Inscription réussie.");
+            out.writeUTF("SUCCESS");
+            System.out.println("Nouvel utilisateur ajouté : " + username + " (" + clientIpAddress + ":" + port + ")");
         }
-
-        // Démarrer le rafraîchissement périodique des données
-        RefreshTaskManager.startRefreshTask(conn, username);
     }
+//ATTENTION ELLE N EST PAS UTILISER
+    public static void handleLogin(Connection conn, DataInputStream in, DataOutputStream out, String clientIpAddress) throws Exception {
+        String username = in.readUTF();
+        String password = in.readUTF();
+        int port = in.readInt();
+        System.out.println("Port reçu pour " + username + " : " + port);
 
-    // Fonction de connexion
-    private static void handleLogin(Connection conn, DataInputStream in, DataOutputStream out) throws Exception {
-        // Lire les données envoyées par le client
-        String username = in.readUTF();          // Récupérer le nom d'utilisateur
-        String password = in.readUTF();          // Récupérer le mot de passe
-        String clientIpAddress = in.readUTF();   // Récupérer l'adresse IP envoyée par le client
-    
-        // Requête SQL pour vérifier les identifiants
         String query = "SELECT COUNT(*) FROM clients WHERE username = ? AND password = ?";
         try (PreparedStatement stmt = conn.prepareStatement(query)) {
             stmt.setString(1, username);
             stmt.setString(2, password);
-    
+
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
                 if (rs.getInt(1) > 0) {
-                    // Si les identifiants sont corrects
                     out.writeUTF("Connexion réussie.");
-    
-                    // Mettre à jour l'adresse IP dans la base de données
-                    updateClientIpAddress(conn, username, clientIpAddress);
-    
-                    // Démarrer une tâche périodique pour cet utilisateur (si applicable)
+                  // Met à jour l'adresse IP, le port et le statut connecté
+                updateClientConnection(conn, username, clientIpAddress, port);
                     RefreshTaskManager.startRefreshTask(conn, username);
-                    
                 } else {
-                    // Si les identifiants sont incorrects
                     out.writeUTF("Nom d'utilisateur ou mot de passe incorrect.");
                 }
             }
         } catch (SQLException e) {
-            // Gérer les erreurs SQL
             e.printStackTrace();
             out.writeUTF("Erreur serveur lors de la connexion.");
         }
     }
-    
-    private static void updateClientIpAddress(Connection conn, String username, String clientIpAddress) throws SQLException {
-    String updateQuery = "UPDATE clients SET adresseIP = ? WHERE username = ?";
-    try (PreparedStatement stmt = conn.prepareStatement(updateQuery)) {
-        stmt.setString(1, clientIpAddress);
-        stmt.setString(2, username);
-        stmt.executeUpdate();
-        System.out.println("Adresse IP mise à jour pour " + username + ": " + clientIpAddress);
+
+     static void updateClientIpAddress(Connection conn, String username, String clientIpAddress) throws SQLException {
+        String updateQuery = "UPDATE clients SET adresseIP = ?, connecte = TRUE, derniereConnexion = now() WHERE username = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(updateQuery)) {
+            stmt.setString(1, clientIpAddress);
+            stmt.setString(2, username);
+            stmt.executeUpdate();
+            System.out.println("Adresse IP mise à jour pour " + username + ": " + clientIpAddress);
+        }
     }
-}
+    public static void updateClientConnection(Connection conn, String username, String clientIpAddress, int port) throws SQLException {
+        String updateQuery = "UPDATE clients SET adresseIP = ?, port = ?, connecte = 1 ,derniereConnexion = now() WHERE username = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(updateQuery)) {
+            stmt.setString(1, clientIpAddress);
+            stmt.setInt(2, port);
+            stmt.setString(3, username);
+            stmt.executeUpdate();
+            System.out.println("Mise à jour de la connexion : " + username + " | IP: " + clientIpAddress + " | Port: " + port);
+        }
+    }
     
 
-    // Fonction de déconnexion
-    private static void handleLogout(DataInputStream in, DataOutputStream out) throws Exception {
+   static void handleLogout(DataInputStream in, DataOutputStream out, Connection conn) throws Exception {
         String username = in.readUTF();
+    
+        // Mettre à jour le statut de connexion de l'utilisateur
+        String updateQuery = "UPDATE clients SET connecte = FALSE WHERE username = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(updateQuery)) {
+            stmt.setString(1, username);
+            stmt.executeUpdate();
+            System.out.println(username + " s'est déconnecté.");
+        }
+    
         out.writeUTF("Déconnexion réussie.");
-        // Arrêter la tâche périodique pour cet utilisateur
         RefreshTaskManager.stopRefreshTask(username);
     }
+    
 }
